@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+
+# Environment variables
+.env
+
+# Logs
+server/logs/*.json
+!server/logs/.gitkeep
+
+# Playwright test artifacts
+test-results/
+.last-run.json
+playwright-report/
+playwright/.cache/
+
+# OS files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE
+.vscode/
+.idea/
+*.sublime-*
+
+# Temporary files
+*.tmp
+*.log

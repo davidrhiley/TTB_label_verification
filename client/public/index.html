@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TTB Label Verification</title>
+  <script src="https://docs.opencv.org/4.10.0/opencv.js"></script>
+  <script src="https://unpkg.com/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+      <div class="container-inner">
+        <div class="seal-wrap">
+          <img src="images/US-AlcoholAndTobaccoTaxAndTradeBureau-Seal.svg" alt="US TTB Seal" class="seal">
+        </div>
+        <div class="main-row">
+          <div class="product-column">
+            <div class="left-section">
+              <h3>Product Information</h3>
+              <form id="uploadForm">
+                <div class="form-grid">
+                  <label class="required">Brand Name
+                    <input id="brandName" name="brandName" type="text" placeholder="Brand Name" required />
+                  </label>
+                  <label class="required">Product Class/Type
+                    <input id="productClass" name="productClass" type="text" placeholder="Product Class/Type" required />
+                  </label>
+                  <label class="required">Alcohol Content
+                    <input id="alcoholContent" name="alcoholContent" type="text" placeholder="e.g. 40% or 80 proof" required />
+                  </label>
+                  <label class="required">Net Contents
+                    <input id="netContents" name="netContents" type="text" placeholder="e.g. 750 mL or 12 oz" required />
+                  </label>
+                  <label class="required">Manufacturer / Bottler Name
+                    <input id="manufacturerName" name="manufacturerName" type="text" placeholder="Manufacturer/Bottler" required />
+                  </label>
+                  <label class="required">Address
+                    <input id="manufacturerAddress" name="manufacturerAddress" type="text" placeholder="City, ST" required />
+                  </label>
+                  <hr style="margin:1.5em 0; border:0; border-top:1px solid #ccc;">
+                </div>
+              </form>
+              <div id="verificationProgress" style="width:100%;margin-bottom:1rem;display:none;">
+                <div id="progressBar" style="height:16px;background:#eee;border-radius:8px;overflow:hidden;">
+                  <div id="progressFill" style="height:100%;width:0%;background:#007bff;transition:width 0.3s;"></div>
+                </div>
+                <div id="progressText" style="text-align:center;font-size:0.9rem;margin-top:0.25rem;color:#000;">Starting...</div>
+              </div>
+              <div id="verificationResults" class="verification-results" style="display: none;">
+                <div id="verificationList"></div>
+              </div>
+            </div>
+          </div>
+          <div class="image-column">
+            <div class="upload-section">
+              <input type="file" id="imageUpload" class="file-input" accept="image/*">
+              <label for="imageUpload" class="upload-label">
+                <svg width="50" height="50" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 19H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h2l2-3h6l2 3h6a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2z"/>
+                  <circle cx="12" cy="13" r="4"/>
+                </svg>
+                <div>Click to upload an image</div>
+                <div class="file-info" id="imageInfo">No file selected</div>
+              </label>
+            </div>
+            <button type="submit" class="button" form="uploadForm">Verify Label</button>
+            <div class="preview-container">
+              <h2>Preview</h2>
+              <img id="imagePreview" class="preview-image" style="display: none;" alt="Preview">
+              <div id="previewText" class="preview-text">No image selected</div>
+              <canvas id="processedImage" style="display: none;"></canvas>
+              <dl id="metadata" class="metadata" style="display:none;"></dl>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="js/app.js"></script>
+  <script type="module">
+    // Main script entry point
+    import { textVerifier } from './js/text-verifier.js';
+
+    // ...existing code...
+    // Handle image selection
+    document.getElementById('imageUpload').addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      const fileName = file?.name || 'No file selected';
+      document.getElementById('imageInfo').textContent = fileName;
+      
+      // Update image preview
+      const preview = document.getElementById('imagePreview');
+      const previewText = document.getElementById('previewText');
+      
+      if (file && file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+          preview.src = e.target.result;
+          preview.style.display = 'block';
+          previewText.style.display = 'none';
+        }
+        reader.readAsDataURL(file);
+      } else {
+        preview.style.display = 'none';
+        previewText.textContent = 'No image selected';
+        previewText.style.display = 'block';
+      }
+    });
+
+    // Text file upload removed — replaced with form fields for product information
+
+    // Process image with OpenCV and verify text
+    async function processImage(imageElement) {
+      return new Promise((resolve, reject) => {
+        try {
+          console.log('Starting image processing...');
+          
+          if (!cv) {
+            throw new Error('OpenCV is not initialized');
+          }
+
+          console.log('Reading image...');
+          const img = cv.imread(imageElement);
+          
+          // Create multiple processed versions for better OCR chances
+          const processedVersions = [];
+          
+          // Version 1: Basic processing
+          {
+            console.log('Creating version 1: Basic processing');
+            let gray = new cv.Mat();
+            cv.cvtColor(img, gray, cv.COLOR_RGBA2GRAY);
+            let binary = new cv.Mat();
+            cv.threshold(gray, binary, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU);
+            processedVersions.push({ mat: binary, name: 'basic' });
+          }
+          
+          // Version 2: Adaptive thresholding
+          {
+            console.log('Creating version 2: Adaptive threshold');
+            let gray = new cv.Mat();
+            cv.cvtColor(img, gray, cv.COLOR_RGBA2GRAY);
+            let blurred = new cv.Mat();
+            let ksize = new cv.Size(3, 3);
+            cv.GaussianBlur(gray, blurred, ksize, 0, 0, cv.BORDER_DEFAULT);
+            let binary = new cv.Mat();
+            cv.adaptiveThreshold(blurred, binary, 255,
+                               cv.ADAPTIVE_THRESH_GAUSSIAN_C,
+                               cv.THRESH_BINARY,
+                               11, 2);
+            processedVersions.push({ mat: binary, name: 'adaptive' });
+          }
+          
+          // Version 3: High contrast with local adaptive threshold
+          {
+            console.log('Creating version 3: High contrast adaptive');
+            let gray = new cv.Mat();
+            cv.cvtColor(img, gray, cv.COLOR_RGBA2GRAY);
+            let enhanced = new cv.Mat();
+            cv.equalizeHist(gray, enhanced);
+            let binary = new cv.Mat();
+            cv.adaptiveThreshold(enhanced, binary, 255,
+                               cv.ADAPTIVE_THRESH_MEAN_C,
+                               cv.THRESH_BINARY,
+                               15, 5);
+            processedVersions.push({ mat: binary, name: 'contrast_adaptive' });
+            gray.delete();
+            enhanced.delete();
+          }
+
+          // Version 4: Sharpened
+          {
+            console.log('Creating version 4: Sharpened');
+            let gray = new cv.Mat();
+            cv.cvtColor(img, gray, cv.COLOR_RGBA2GRAY);
+            
+            // Create sharpening kernel
+            let kernel = cv.Mat.ones(3, 3, cv.CV_32F);
+            kernel.data32F[4] = 9;  // Center pixel
+            for (let i = 0; i < 9; i++) {
+              if (i !== 4) kernel.data32F[i] = -1;
+            }
+            
+            let sharpened = new cv.Mat();
+            cv.filter2D(gray, sharpened, -1, kernel);
+            let binary = new cv.Mat();
+            cv.threshold(sharpened, binary, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU);
+            
+            processedVersions.push({ mat: binary, name: 'sharpened' });
+            gray.delete();
+            kernel.delete();
+            sharpened.delete();
+          }
+
+          // Version 5: Median blur for denoising
+          {
+            console.log('Creating version 4: Median denoising');
+            let denoised = new cv.Mat();
+            let gray = new cv.Mat();
+            cv.cvtColor(img, gray, cv.COLOR_RGBA2GRAY);
+            cv.medianBlur(gray, denoised, 3);  // Use median blur for noise reduction
+            let binary = new cv.Mat();
+            cv.threshold(denoised, binary, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU);
+            let kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(2, 2));
+            let cleaned = new cv.Mat();
+            cv.morphologyEx(binary, cleaned, cv.MORPH_OPEN, kernel);
+            kernel.delete();
+            processedVersions.push({ mat: cleaned, name: 'denoised' });
+            denoised.delete();
+            gray.delete();
+            binary.delete();
+          }
+
+          // Create a combined display of all versions
+          const displayWidth = img.cols * 2;  // 2 images per row
+          const displayHeight = Math.ceil(processedVersions.length / 2) * img.rows;
+          const display = new cv.Mat.zeros(displayHeight, displayWidth, cv.CV_8UC1);
+
+          // Combine all versions into one display
+          processedVersions.forEach((version, index) => {
+            const x = (index % 2) * img.cols;
+            const y = Math.floor(index / 2) * img.rows;
+            const rect = new cv.Rect(x, y, img.cols, img.rows);
+            const roi = display.roi(rect);
+            version.mat.copyTo(roi);
+          });
+
+          // Show the processed images
+          console.log('Showing processed versions...');
+          cv.imshow('processedImage', display);
+          document.getElementById('processedImage').style.display = 'block';
+          
+          // Clean up resources
+          console.log('Cleaning up resources...');
+          processedVersions.forEach(version => {
+            version.mat.delete();
+          });
+          img.delete();
+          display.delete();
+          
+          console.log('Image processing complete');
+          resolve(document.getElementById('processedImage'));
+        } catch (error) {
+          console.error('Error in image processing:', error);
+          reject(error);
+        }
+      });
+    }
+
+    // Verify text against input fields with fuzzy matching
+    async function verifyText(extractedText, fields) {
+      console.log('Starting text verification...');
+      try {
+        if (!extractedText) {
+          throw new Error('No text was extracted from the image');
+        }
+
+        const results = [];
+        const text = extractedText.toLowerCase();
+        console.log('Extracted text:', text);
+        
+        // Function to calculate Levenshtein distance
+        function levenshteinDistance(a, b) {
+          if (a.length === 0) return b.length;
+          if (b.length === 0) return a.length;
+
+          const matrix = [];
+          for (let i = 0; i <= b.length; i++) {
+            matrix[i] = [i];
+          }
+          for (let j = 0; j <= a.length; j++) {
+            matrix[0][j] = j;
+          }
+
+          for (let i = 1; i <= b.length; i++) {
+            for (let j = 1; j <= a.length; j++) {
+              if (b.charAt(i - 1) === a.charAt(j - 1)) {
+                matrix[i][j] = matrix[i - 1][j - 1];
+              } else {
+                matrix[i][j] = Math.min(
+                  matrix[i - 1][j - 1] + 1,
+                  matrix[i][j - 1] + 1,
+                  matrix[i - 1][j] + 1
+                );
+              }
+            }
+          }
+          return matrix[b.length][a.length];
+        }
+
+        // Function to find best match in text
+        function findBestMatch(searchValue, text) {
+          const words = text.split(/\s+/);
+          let bestMatch = { distance: Infinity, word: null };
+          
+          // Try to find exact match first
+          if (text.includes(searchValue)) {
+            return { distance: 0, word: searchValue, confidence: 1 };
+          }
+
+          // Try different word combinations
+          for (let i = 0; i < words.length; i++) {
+            // Try single words
+            const distance = levenshteinDistance(searchValue, words[i]);
+            if (distance < bestMatch.distance) {
+              bestMatch = { distance, word: words[i] };
+            }
+
+            // Try combinations of words
+            let phrase = words[i];
+            for (let j = 1; j < 3 && i + j < words.length; j++) {
+              phrase += ' ' + words[i + j];
+              const phraseDistance = levenshteinDistance(searchValue, phrase);
+              if (phraseDistance < bestMatch.distance) {
+                bestMatch = { distance, word: phrase };
+              }
+            }
+          }
+
+          // Calculate confidence score (0-1)
+          const confidence = Math.max(0, 1 - (bestMatch.distance / searchValue.length));
+          return { ...bestMatch, confidence };
+        }
+        
+        // Check each field against the extracted text
+        for (const [key, value] of Object.entries(fields)) {
+          console.log(`Verifying field "${key}":`, { value, type: typeof value });
+          
+          if (value) {
+            const searchValue = String(value).toLowerCase();
+            console.log(`Normalized search value for "${key}":`, searchValue);
+            const match = findBestMatch(searchValue, text);
+            const found = match.confidence > 0.7; // Adjust threshold as needed
+            
+            console.log(`Checking field "${key}": "${searchValue}"`, {
+              bestMatch: match.word,
+              confidence: match.confidence,
+              found
+            });
+
+            results.push({
+              field: key,
+              input: value,
+              found,
+              confidence: match.confidence,
+              bestMatch: match.word
+            });
+          }
+        }
+        
+        console.log('Verification complete:', results);
+        return results;
+      } catch (error) {
+        console.error('Error in text verification:', error);
+        throw error;
+      }
+    }
+
+    // Form validation and submission are handled by app.js and form-validator.js
+
+    // Initialize OpenCV
+    function initializeOpenCV() {
+      return new Promise(async (resolve, reject) => {
+        try {
+          console.log('Starting OpenCV initialization...');
+          const timeout = setTimeout(() => {
+            reject(new Error('OpenCV initialization timed out after 30 seconds'));
+          }, 30000);
+
+          if (window.cv) {
+            console.log('OpenCV already available');
+            clearTimeout(timeout);
+            state.cvReady = true;
+            resolve();
+            return;
+          }
+
+          // Set up the ready callback
+          window.onOpenCvReady = () => {
+            console.log('OpenCV ready callback triggered');
+            if (window.cv) {
+              console.log('OpenCV is now ready');
+              clearTimeout(timeout);
+              state.cvReady = true;
+              resolve();
+            } else {
+              reject(new Error('OpenCV ready callback triggered but cv object not available'));
+            }
+          };
+
+          // Load OpenCV script
+          await loadOpenCV();
+          
+          // Double check if OpenCV is available immediately after loading
+          if (window.cv && !state.cvReady) {
+            console.log('OpenCV available after script load');
+            clearTimeout(timeout);
+            state.cvReady = true;
+            resolve();
+          }
+          
+        } catch (error) {
+          console.error('Error during OpenCV initialization:', error);
+          reject(error);
+        }
+      });
+    }
+
+
+  </script>
+</body>
+</html>
