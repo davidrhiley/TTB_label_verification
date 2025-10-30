@@ -229,7 +229,7 @@ class App {
      */
     async logVerificationResults(imageName, fields, ocrText, results) {
         try {
-            await fetch('http://localhost:3001/api/log-verification', {
+            await fetch('/api/log-verification', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
